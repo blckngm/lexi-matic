@@ -21,6 +21,7 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         Data::Enum(e) => e,
         _ => return Err(syn::Error::new_spanned(item, "expect an enum")),
     };
+    let vis = item.vis;
     let name = item.ident;
     let mut regexes = Vec::with_capacity(e.variants.len());
     let mut matches = Vec::new();
@@ -40,12 +41,10 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         let mut regex = None;
         for a in &v.attrs {
             let r = if a.path().is_ident("regex") {
-                let v = &a.meta.require_name_value()?.value;
-                let x: LitStr = syn::parse_quote!(#v);
+                let x: LitStr = a.parse_args()?;
                 x.value()
             } else if a.path().is_ident("token") {
-                let v = &a.meta.require_name_value()?.value;
-                let x: LitStr = syn::parse_quote!(#v);
+                let x: LitStr = a.parse_args()?;
                 regex_syntax::escape(&x.value())
             } else {
                 continue;
@@ -93,9 +92,9 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
         static __DFA_BYTES: &Align4<[u8; #ll]> = &Align4([ #(#little_bytes),* ]);
         #[cfg(target_endian = "big")]
         static __DFA_BYTES: &Align4<[u8; #bl]> = &Align4([ #(#big_bytes),* ]);
-        static DFA: std::sync::OnceLock<regex_automata::dfa::dense::DFA<&[u32]>> = std::sync::OnceLock::new();
+        static DFA: std::sync::OnceLock<lexi_matic::DFA<&[u32]>> = std::sync::OnceLock::new();
         let dfa = DFA.get_or_init(||
-            regex_automata::dfa::dense::DFA::from_bytes(&__DFA_BYTES.0).unwrap().0
+            lexi_matic::DFA::from_bytes(&__DFA_BYTES.0).unwrap().0
         );
     };
 
@@ -116,7 +115,7 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
             }
         }
 
-        struct #iter_name<'a> {
+        #vis struct #iter_name<'a> {
             pub input: &'a str,
             pub consumed: usize,
         }

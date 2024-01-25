@@ -7,15 +7,15 @@ hood.
 # use lexi_matic::Lexer;
 #[derive(Debug, Lexer, PartialEq, Eq)]
 enum Token<'a> {
-    #[token = "import"]
+    #[token("import")]
     Import,
-    #[token = ";"]
+    #[token(";")]
     Semi,
-    #[regex = "[a-zA-Z_][a-zA-Z0-9_]*"]
+    #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Ident(&'a str),
-    #[regex = "//[^\n]*\n"]
+    #[regex("//[^\n]*\n")]
     Comment,
-    #[regex = r"[ \t\r\n\f]+"]
+    #[regex(r"[ \t\r\n\f]+")]
     Space,
 }
 
@@ -42,9 +42,9 @@ So if you have keywords and identifiers, specify the keywords *first*:
 # use lexi_matic::Lexer;
 #[derive(Lexer)]
 enum Token<'a> {
-    #[token = "import"]
+    #[token("import")]
     Import,
-    #[regex = "[a-zA-Z_][a-zA-Z0-9_]*"]
+    #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Ident(&'a str),
 }
 ```

@@ -2,15 +2,15 @@ use lexi_matic::Lexer;
 
 #[derive(Debug, Lexer, PartialEq, Eq)]
 enum Token {
-    #[token = "import"]
+    #[token("import")]
     Import,
-    #[token = ";"]
+    #[token(";")]
     Semi,
-    #[regex = "[a-zA-Z_][a-zA-Z0-9_]*"]
+    #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Ident,
-    #[regex = "//[^\n]*\n"]
+    #[regex("//[^\n]*\n")]
     Comment,
-    #[regex = r"[ \t\r\n\f]+"]
+    #[regex(r"[ \t\r\n\f]+")]
     Space,
 }
 

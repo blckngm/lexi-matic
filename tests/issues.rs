@@ -6,17 +6,17 @@ use lexi_matic::Lexer;
 fn test_279() {
     #[derive(Lexer, Debug)]
     enum Token {
-        #[token = r"\"]
+        #[token(r"\")]
         Backslash,
-        #[token = r"\\"]
+        #[token(r"\\")]
         DoubleBackslash,
-        #[token = r"\begin"]
+        #[token(r"\begin")]
         EnvironmentBegin,
-        #[token = r"\end"]
+        #[token(r"\end")]
         EnvironmentEnd,
-        #[token = r"\begin{document}"]
+        #[token(r"\begin{document}")]
         DocumentBegin,
-        #[regex = r"\\[a-zA-Z]+"]
+        #[regex(r"\\[a-zA-Z]+")]
         MacroName,
     }
 
@@ -29,11 +29,11 @@ fn test_279() {
 fn test_315() {
     #[derive(Lexer, Clone, Copy, Debug, PartialEq)]
     enum Token {
-        #[token = "a"]
+        #[token("a")]
         A,
-        #[token = "b"]
+        #[token("b")]
         B,
-        #[regex = r"[ab]*c"]
+        #[regex(r"[ab]*c")]
         Abc,
     }
 
@@ -46,7 +46,7 @@ fn test_315() {
 fn test_349() {
     #[derive(Lexer, Debug, PartialEq, Eq)]
     enum Foo {
-        #[token = "FOOB"]
+        #[token("FOOB")]
         Foo,
     }
 
