@@ -2,6 +2,10 @@
 name = "lexi-matic"
 version = "0.1.0"
 edition = "2021"
+authors = ["Guanhao Yin"]
+repository = "https://github.com/blckngm/lexi-matic"
+license = "MIT"
+description = "A Lexer Library"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -9,5 +13,5 @@ edition = "2021"
 members = ["lexi-matic-derive"]
 
 [dependencies]
-lexi-matic-derive = { path = "./lexi-matic-derive" }
+lexi-matic-derive = { version = "0.1.0", path = "./lexi-matic-derive" }
 regex-automata = { version = "0.4.4", features = ["perf", "dfa-search"], default-features = false }

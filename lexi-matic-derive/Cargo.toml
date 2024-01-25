@@ -2,6 +2,10 @@
 name = "lexi-matic-derive"
 version = "0.1.0"
 edition = "2021"
+authors = ["Guanhao Yin"]
+repository = "https://github.com/blckngm/lexi-matic"
+license = "MIT"
+description = "Derive macro for lexi-matic"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
