@@ -32,13 +32,3 @@ fn test_tokens() {
     }
     assert_eq!(seen, expected.len());
 }
-
-fn main() {
-    let input = Token::lex("import foo_bar;import import1;// ...\nimport buz;");
-    for t in input {
-        let (start, t, end) = t.unwrap();
-        if t != Token::Space && t != Token::Comment {
-            println!("{start}..{end} {t:?}");
-        }
-    }
-}

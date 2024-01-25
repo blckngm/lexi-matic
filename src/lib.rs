@@ -1,3 +1,4 @@
+#![doc = include_str!("../README.md")]
 use std::fmt;
 
 pub use lexi_matic_derive::Lexer;
@@ -17,11 +18,12 @@ impl fmt::Display for Error {
 
 impl std::error::Error for Error {}
 
-pub trait Lexer<'a> {
-    type Iterator;
+pub trait Lexer<'a>: Sized {
+    type Iterator: IntoIterator<Item = Result<(usize, Self, usize), Error>>;
     fn lex(input: &'a str) -> Self::Iterator;
 }
 
+#[doc(hidden)]
 pub fn dfa_search_next(dfa: &DFA<&[u32]>, input: &str) -> Option<(PatternID, usize)> {
     let m = dfa
         .try_search_fwd(&regex_automata::Input::new(input).anchored(regex_automata::Anchored::Yes))
