@@ -4,6 +4,7 @@ use std::fmt;
 use regex_automata::{dfa::Automaton, PatternID};
 
 pub use lexi_matic_derive::Lexer;
+#[doc(hidden)]
 pub use regex_automata::dfa::dense::DFA;
 
 #[derive(Debug)]

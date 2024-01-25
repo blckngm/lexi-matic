@@ -1,6 +1,7 @@
 use lexi_matic::Lexer;
 
 #[derive(Debug, Lexer, PartialEq, Eq)]
+#[lexer(skip = "//[^\n]*\n", skip = r"[ \t\r\n\f]+")]
 enum Token<'a> {
     #[token("import")]
     Import,
@@ -8,10 +9,6 @@ enum Token<'a> {
     Semi,
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Ident(&'a str),
-    #[regex("//[^\n]*\n")]
-    Comment,
-    #[regex(r"[ \t\r\n\f]+")]
-    Space,
 }
 
 #[test]
@@ -19,8 +16,6 @@ fn test_tokens() {
     let input = Token::lex("import // ...\nimport1;");
     let expected = [
         (0, Token::Import, 6),
-        (6, Token::Space, 7),
-        (7, Token::Comment, 14),
         (14, Token::Ident("import1"), 21),
         (21, Token::Semi, 22),
     ];

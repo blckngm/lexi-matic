@@ -8,7 +8,7 @@ use regex_automata::{
 use syn::{parse_macro_input, Data, DeriveInput, LitStr};
 
 /// Derive the Lexer implementation.
-#[proc_macro_derive(Lexer, attributes(regex, token))]
+#[proc_macro_derive(Lexer, attributes(regex, token, lexer))]
 pub fn derive_lexer(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input);
     derive_lexer_impl(input)
@@ -23,6 +23,22 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
     };
     let vis = item.vis;
     let name = item.ident;
+
+    let mut skip_regexes = Vec::new();
+    for a in item.attrs {
+        if a.path().is_ident("lexer") {
+            a.parse_nested_meta(|m| {
+                if m.path.is_ident("skip") {
+                    let r: LitStr = m.value()?.parse()?;
+                    skip_regexes.push(r.value());
+                    Ok(())
+                } else {
+                    Err(m.error("unsupported attributed"))
+                }
+            })?;
+        }
+    }
+
     let mut regexes = Vec::with_capacity(e.variants.len());
     let mut matches = Vec::new();
     for (i, v) in e.variants.iter().enumerate() {
@@ -68,6 +84,7 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
             Some(r) => regexes.push(r),
         }
     }
+    regexes.extend(skip_regexes);
 
     let dfa = DFA::builder()
         .configure(
@@ -125,22 +142,28 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
             fn next(&mut self) -> Option<Self::Item> {
                 #dfa
 
-                let start = self.consumed;
-                let remaining = &self.input[self.consumed..];
-                if remaining.is_empty() {
-                    return None;
-                }
+                loop {
+                    let start = self.consumed;
+                    let remaining = &self.input[self.consumed..];
+                    if remaining.is_empty() {
+                        return None;
+                    }
 
-                let (pat, len) = match lexi_matic::dfa_search_next(dfa, remaining) {
-                    Some(t) => t,
-                    None => return Some(Err(lexi_matic::Error(start))),
-                };
-                let t = match pat.as_u32() {
-                    #(#matches)*
-                    _ => unreachable!(),
-                };
-                self.consumed += len;
-                Some(Ok((start, t, start + len)))
+                    let (pat, len) = match lexi_matic::dfa_search_next(dfa, remaining) {
+                        Some(t) => t,
+                        None => return Some(Err(lexi_matic::Error(start))),
+                    };
+                    let t = match pat.as_u32() {
+                        #(#matches)*
+                        _ => {
+                            // Skip.
+                            self.consumed += len;
+                            continue;
+                        }
+                    };
+                    self.consumed += len;
+                    return Some(Ok((start, t, start + len)));
+                }
             }
         }
     };

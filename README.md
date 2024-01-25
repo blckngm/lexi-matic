@@ -6,6 +6,7 @@ hood.
 ```rust
 # use lexi_matic::Lexer;
 #[derive(Debug, Lexer, PartialEq, Eq)]
+#[lexer(skip = "//[^\n]*\n", skip = r"[ \t\r\n\f]+")]
 enum Token<'a> {
     #[token("import")]
     Import,
@@ -13,19 +14,13 @@ enum Token<'a> {
     Semi,
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Ident(&'a str),
-    #[regex("//[^\n]*\n")]
-    Comment,
-    #[regex(r"[ \t\r\n\f]+")]
-    Space,
 }
 
 // An iterator of Result<(usize, Token, usize), lexi_matic::Error>.
 let tokens = Token::lex("import foo_bar;import import1;// ...\nimport buz;");
 for t in tokens {
     let (start, t, end) = t.unwrap();
-    if t != Token::Space && t != Token::Comment {
-        println!("{start}..{end} {t:?}");
-    }
+    println!("{start}..{end} {t:?}");
 }
 ```
 
