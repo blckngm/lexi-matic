@@ -45,3 +45,31 @@ enum Token<'a> {
 ```
 
 So `import` would be `Import` but `import1` would be `Ident`.
+
+## Custom Lexing
+
+Sometimes the lexing grammar isn't regular or even
+[context-free](https://github.com/rust-lang/rust/blob/HEAD@%7B2019-05-26T21:45:17Z%7D/src/grammar/raw-string-literal-ambiguity.md). You can use a callback for these:
+
+```rust
+# use lexi_matic::Lexer;
+
+#[derive(Debug, Lexer)]
+enum Token<'a> {
+    #[token(";")]
+    Semi,
+    #[regex(r##"r#*""##)]
+    #[lexer(more = end_raw_str)]
+    RawStr(&'a str),
+}
+
+// A `more` function should return how many more bytes to include in this token.
+// We are trying to finish a raw string literal, so we search for the matching
+// `"###`.
+//
+// If a `more` function returns `None`, it is considered a lexical error.
+fn end_raw_str(matched: &str, remaining: &str) -> Option<usize> {
+    let start: String = matched[1..].chars().rev().collect();
+    remaining.find(&start).map(|l| l + start.len())
+}
+```

@@ -15,7 +15,7 @@ enum Token<'a> {
 }
 
 // A `more` function should return how many more bytes to include in this token.
-// We are trying finish a raw string literal, so we search for the matching
+// We are trying to finish a raw string literal, so we search for the matching
 // `"###`.
 //
 // If a `more` function returns `None`, it is considered a lexical error.
