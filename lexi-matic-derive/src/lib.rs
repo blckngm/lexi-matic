@@ -5,7 +5,7 @@ use regex_automata::{
     dfa::{dense::DFA, StartKind},
     MatchKind,
 };
-use syn::{parse_macro_input, Data, DeriveInput, LitStr};
+use syn::{parse_macro_input, Data, DeriveInput, Ident, LitStr};
 
 /// Derive the Lexer implementation.
 #[proc_macro_derive(Lexer, attributes(regex, token, lexer))]
@@ -33,7 +33,7 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                     skip_regexes.push(r.value());
                     Ok(())
                 } else {
-                    Err(m.error("unsupported attributed"))
+                    Err(m.error("unsupported attribute"))
                 }
             })?;
         }
@@ -44,13 +44,37 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
     for (i, v) in e.variants.iter().enumerate() {
         let vn = &v.ident;
         let i = i as u32;
-        matches.push(if v.fields.is_empty() {
-            quote! {
-                #i => #name::#vn,
+        let mut more: Option<Ident> = None;
+        for a in &v.attrs {
+            if a.path().is_ident("lexer") {
+                a.parse_nested_meta(|m| {
+                    if m.path.is_ident("more") {
+                        more = Some(m.value()?.parse()?);
+                        Ok(())
+                    } else {
+                        Err(m.error("unsupported attribute"))
+                    }
+                })?;
             }
+        }
+        let more = match more {
+            Some(more) => quote! {
+                len += match #more(&remaining[..len], &remaining[len..]) {
+                    Some(len) => len,
+                    None => return Some(Err(lexi_matic::Error(start))),
+                };
+            },
+            None => quote!(),
+        };
+        let construct = if v.fields.is_empty() {
+            quote!(#name::#vn)
         } else {
-            quote! {
-                #i => #name::#vn(&remaining[..len]),
+            quote!(#name::#vn((&remaining[..len]).into()))
+        };
+        matches.push(quote! {
+            #i => {
+                #more
+                #construct
             }
         });
 
@@ -149,7 +173,7 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                         return None;
                     }
 
-                    let (pat, len) = match lexi_matic::dfa_search_next(dfa, remaining) {
+                    let (pat, mut len) = match lexi_matic::dfa_search_next(dfa, remaining) {
                         Some(t) => t,
                         None => return Some(Err(lexi_matic::Error(start))),
                     };
