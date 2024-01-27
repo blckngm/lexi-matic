@@ -15,3 +15,6 @@ members = ["lexi-matic-derive"]
 [dependencies]
 lexi-matic-derive = { version = "0.1.0", path = "./lexi-matic-derive" }
 regex-automata = { version = "0.4.4", features = ["perf", "dfa-search"], default-features = false }
+
+[dev-dependencies]
+logos = "0.13.0"
