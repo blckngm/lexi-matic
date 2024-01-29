@@ -1,7 +1,7 @@
 #![doc = include_str!("../README.md")]
 use std::fmt;
 
-use regex_automata::{dfa::Automaton, PatternID};
+use regex_automata::{dfa::Automaton, util::start::Config, PatternID};
 
 pub use lexi_matic_derive::Lexer;
 #[doc(hidden)]
@@ -25,8 +25,28 @@ pub trait Lexer<'a>: Sized {
 
 #[doc(hidden)]
 pub fn dfa_search_next(dfa: &DFA<&[u32]>, input: &str) -> Option<(PatternID, usize)> {
-    let m = dfa
-        .try_search_fwd(&regex_automata::Input::new(input).anchored(regex_automata::Anchored::Yes))
-        .ok()??;
-    Some((m.pattern(), m.offset()))
+    let start = dfa
+        .start_state(&Config::new().anchored(regex_automata::Anchored::Yes))
+        .unwrap();
+    let mut state = start;
+    let mut matched = (start, 0);
+    'search: {
+        for (i, b) in input.as_bytes().iter().copied().enumerate() {
+            state = dfa.next_state(state, b);
+            if dfa.is_match_state(state) {
+                matched = (state, i);
+            } else if dfa.is_dead_state(state) {
+                break 'search;
+            }
+        }
+        state = dfa.next_eoi_state(state);
+        if dfa.is_match_state(state) {
+            matched = (state, input.len());
+        }
+    }
+    if matched.1 != 0 {
+        Some((dfa.match_pattern(matched.0, 0), matched.1))
+    } else {
+        None
+    }
 }

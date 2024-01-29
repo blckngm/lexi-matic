@@ -116,6 +116,7 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
                 // Use MatchKind::All to get longest match.
                 .match_kind(MatchKind::All)
                 .start_kind(StartKind::Anchored)
+                .accelerate(false)
                 .minimize(true),
         )
         .build_many(&regexes)
@@ -168,7 +169,7 @@ fn derive_lexer_impl(item: DeriveInput) -> syn::Result<proc_macro2::TokenStream>
 
                 loop {
                     let start = self.consumed;
-                    let remaining = &self.input[self.consumed..];
+                    let remaining = &self.input[start..];
                     if remaining.is_empty() {
                         return None;
                     }
