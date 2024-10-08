@@ -1,6 +1,6 @@
 [package]
 name = "lexi-matic-derive"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Guanhao Yin"]
 repository = "https://github.com/blckngm/lexi-matic"
