@@ -6,30 +6,43 @@ use lexi_matic::Lexer;
 
 #[derive(Debug, Lexer, PartialEq, Eq)]
 #[lexer(skip = "//[^\n]*")]
-enum Token0<'a> {
-    #[regex("\n? *")]
+enum RawToken<'a> {
+    #[regex("\n *")]
     Indent(&'a str),
+    #[regex(" +")]
+    Whitespace(&'a str),
+    #[token("[")]
+    LBracket,
+    #[token("]")]
+    RBracket,
+    #[token(",")]
+    Comma,
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
-    Ident(&'a str),
+    Identifier(&'a str),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Token<'a> {
     Indent,
     Dedent,
-    Ident(&'a str),
+    Identifier(&'a str),
+    LBracket,
+    RBracket,
+    Comma,
 }
 
 struct TokenIterator<'a> {
-    inner: Peekable<Token0Iterator<'a>>,
+    inner: Peekable<RawTokenIterator<'a>>,
     intents: Vec<usize>,
+    brackets: usize,
     queue: VecDeque<Token<'a>>,
 }
 
 impl<'a> Token<'a> {
     fn lex(input: &'a str) -> TokenIterator<'a> {
         TokenIterator {
-            inner: Token0::lex(input).peekable(),
+            inner: RawToken::lex(input).peekable(),
+            brackets: 0,
             intents: Default::default(),
             queue: Default::default(),
         }
@@ -48,31 +61,44 @@ impl<'a> Iterator for TokenIterator<'a> {
             match self.inner.next() {
                 Some(Err(e)) => return Some(Err(e)),
                 Some(Ok((l, t, _))) => match t {
-                    Token0::Indent(i) => {
-                        if matches!(self.inner.peek(), Some(Ok((_, Token0::Indent(_), _)))) {
+                    RawToken::Whitespace(w) => {
+                        // Whitespace at the start of input is indentation.
+                        if l == 0 {
+                            self.intents.push(w.len());
+                            return Some(Ok(Token::Indent));
+                        }
+                    }
+                    RawToken::Indent(indent) => {
+                        if self.brackets > 0 {
+                            continue;
+                        }
+                        if matches!(
+                            self.inner.peek(),
+                            Some(Ok((_, RawToken::Indent(_) | RawToken::Whitespace(_), _)))
+                        ) {
                             continue;
                         }
 
-                        let spaces = i.strip_prefix('\n').unwrap_or(i).len();
+                        let level = indent.len() - 1;
                         let last = self.intents.last().cloned().unwrap_or_default();
                         #[allow(clippy::comparison_chain)]
-                        if spaces > last {
-                            self.intents.push(spaces);
+                        if level > last {
+                            self.intents.push(level);
                             return Some(Ok(Token::Indent));
-                        } else if spaces == last {
+                        } else if level == last {
                             continue;
                         } else {
                             self.intents.pop();
                             loop {
                                 let last = self.intents.last().cloned().unwrap_or_default();
-                                if spaces > last {
+                                if level > last {
                                     // Misaligned indentation.
                                     self.intents.pop();
-                                    self.intents.push(spaces);
+                                    self.intents.push(level);
                                     self.queue.push_back(Token::Dedent);
                                     self.queue.push_back(Token::Indent);
                                     return Some(Err(lexi_matic::Error(l)));
-                                } else if spaces == last {
+                                } else if level == last {
                                     return Some(Ok(Token::Dedent));
                                 } else {
                                     self.intents.pop();
@@ -81,7 +107,16 @@ impl<'a> Iterator for TokenIterator<'a> {
                             }
                         }
                     }
-                    Token0::Ident(i) => return Some(Ok(Token::Ident(i))),
+                    RawToken::LBracket => {
+                        self.brackets += 1;
+                        return Some(Ok(Token::LBracket));
+                    }
+                    RawToken::RBracket => {
+                        self.brackets = self.brackets.saturating_sub(1);
+                        return Some(Ok(Token::RBracket));
+                    }
+                    RawToken::Comma => return Some(Ok(Token::Comma)),
+                    RawToken::Identifier(i) => return Some(Ok(Token::Identifier(i))),
                 },
                 None => {
                     if !self.intents.is_empty() {
@@ -106,8 +141,13 @@ foo
         baz
   bar  // xxx.
  //
+  bar [
+    x,
+    y,
+    z,
+  ]
   bar
-    bar"#,
+    baz"#,
     );
 
     for t in it {
