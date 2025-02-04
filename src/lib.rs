@@ -1,11 +1,10 @@
 #![doc = include_str!("../README.md")]
 use std::fmt;
 
-use regex_automata::{dfa::Automaton, util::start::Config, PatternID};
-
 pub use lexi_matic_derive::Lexer;
 #[doc(hidden)]
 pub use regex_automata::dfa::dense::DFA;
+use regex_automata::{dfa::Automaton, util::start::Config, PatternID};
 
 #[derive(Debug)]
 pub struct Error(pub usize);

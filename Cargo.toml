@@ -17,4 +17,5 @@ lexi-matic-derive = { version = "0.1.1", path = "./lexi-matic-derive" }
 regex-automata = { version = "0.4.4", features = ["perf", "dfa-search"], default-features = false }
 
 [dev-dependencies]
+itertools = "0.14.0"
 logos = "0.13.0"

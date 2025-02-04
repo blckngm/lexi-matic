@@ -203,7 +203,5 @@ foo
         Ok(Token::Dedent),
     ];
 
-    for (i, (actual, expected)) in it.zip(expected).enumerate() {
-        assert_eq!(actual, expected, "Mismatch at index {i}");
-    }
+    itertools::assert_equal(it, expected);
 }
