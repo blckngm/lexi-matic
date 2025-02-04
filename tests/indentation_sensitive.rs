@@ -1,6 +1,6 @@
 // Experiment with indentation sensitive lexing like in python.
 
-use std::{collections::VecDeque, iter::Peekable};
+use std::{cmp::Ordering, collections::VecDeque, fmt, iter::Peekable};
 
 use lexi_matic::Lexer;
 
@@ -31,6 +31,23 @@ enum Token<'a> {
     Comma,
 }
 
+#[derive(Debug, PartialEq, Eq)]
+enum Error {
+    MisalignedIndentation(usize),
+    LexicalError(usize),
+}
+
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::MisalignedIndentation(i) => write!(f, "Misaligned indentation at {}", i),
+            Self::LexicalError(i) => write!(f, "Lexical error at {}", i),
+        }
+    }
+}
+
+impl std::error::Error for Error {}
+
 struct TokenIterator<'a> {
     inner: Peekable<RawTokenIterator<'a>>,
     intents: Vec<usize>,
@@ -50,7 +67,7 @@ impl<'a> Token<'a> {
 }
 
 impl<'a> Iterator for TokenIterator<'a> {
-    type Item = Result<Token<'a>, lexi_matic::Error>;
+    type Item = Result<Token<'a>, Error>;
 
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(t) = self.queue.pop_front() {
@@ -59,7 +76,7 @@ impl<'a> Iterator for TokenIterator<'a> {
 
         loop {
             match self.inner.next() {
-                Some(Err(e)) => return Some(Err(e)),
+                Some(Err(e)) => return Some(Err(Error::LexicalError(e.0))),
                 Some(Ok((l, t, _))) => match t {
                     RawToken::Whitespace(w) => {
                         // Whitespace at the start of input is indentation.
@@ -81,28 +98,37 @@ impl<'a> Iterator for TokenIterator<'a> {
 
                         let level = indent.len() - 1;
                         let last = self.intents.last().cloned().unwrap_or_default();
-                        #[allow(clippy::comparison_chain)]
-                        if level > last {
-                            self.intents.push(level);
-                            return Some(Ok(Token::Indent));
-                        } else if level == last {
-                            continue;
-                        } else {
-                            self.intents.pop();
-                            loop {
-                                let last = self.intents.last().cloned().unwrap_or_default();
-                                if level > last {
-                                    // Misaligned indentation.
-                                    self.intents.pop();
-                                    self.intents.push(level);
-                                    self.queue.push_back(Token::Dedent);
-                                    self.queue.push_back(Token::Indent);
-                                    return Some(Err(lexi_matic::Error(l)));
-                                } else if level == last {
-                                    return Some(Ok(Token::Dedent));
-                                } else {
-                                    self.intents.pop();
-                                    self.queue.push_back(Token::Dedent);
+                        match level.cmp(&last) {
+                            Ordering::Greater => {
+                                self.intents.push(level);
+                                return Some(Ok(Token::Indent));
+                            }
+                            Ordering::Equal => continue,
+                            Ordering::Less => {
+                                // We pop without enqueueing a dedent token here because we'll return
+                                // one directly when we find the matching level in the loop below
+                                self.intents.pop();
+                                loop {
+                                    let last = self.intents.last().cloned().unwrap_or_default();
+                                    match level.cmp(&last) {
+                                        Ordering::Greater => {
+                                            // Misaligned indentation.
+                                            self.intents.pop();
+                                            self.intents.push(level);
+                                            // When we detect misaligned indentation, we emit a DEDENT + INDENT pair
+                                            // to maintain proper block structure while still indicating an error occurred
+                                            self.queue.push_back(Token::Dedent);
+                                            self.queue.push_back(Token::Indent);
+                                            return Some(Err(Error::MisalignedIndentation(l)));
+                                        }
+                                        Ordering::Equal => {
+                                            return Some(Ok(Token::Dedent));
+                                        }
+                                        Ordering::Less => {
+                                            self.intents.pop();
+                                            self.queue.push_back(Token::Dedent);
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -150,7 +176,34 @@ foo
     baz"#,
     );
 
-    for t in it {
-        println!("{t:?}");
+    let expected = [
+        Ok(Token::Identifier("foo")),
+        Ok(Token::Indent),
+        Ok(Token::Identifier("bar")),
+        Ok(Token::Indent),
+        Ok(Token::Identifier("baz")),
+        Err(Error::MisalignedIndentation(24)),
+        Ok(Token::Dedent),
+        Ok(Token::Dedent),
+        Ok(Token::Indent),
+        Ok(Token::Identifier("bar")),
+        Ok(Token::Identifier("bar")),
+        Ok(Token::LBracket),
+        Ok(Token::Identifier("x")),
+        Ok(Token::Comma),
+        Ok(Token::Identifier("y")),
+        Ok(Token::Comma),
+        Ok(Token::Identifier("z")),
+        Ok(Token::Comma),
+        Ok(Token::RBracket),
+        Ok(Token::Identifier("bar")),
+        Ok(Token::Indent),
+        Ok(Token::Identifier("baz")),
+        Ok(Token::Dedent),
+        Ok(Token::Dedent),
+    ];
+
+    for (i, (actual, expected)) in it.zip(expected).enumerate() {
+        assert_eq!(actual, expected, "Mismatch at index {i}");
     }
 }
