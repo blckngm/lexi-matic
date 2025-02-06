@@ -1,6 +1,6 @@
 // Experiment with layout rules like in Haskell.
 //
-// But not exactly like in Haskell, because we will stop layouts when seeing `in` instead of using `parse-error`.
+// But not exactly like in Haskell, because we will close layouts when seeing `in` or `)` instead of using `parse-error`.
 
 use std::{collections::VecDeque, iter::Peekable};
 
@@ -21,6 +21,10 @@ enum RawToken<'a> {
     In,
     #[token("by")]
     By,
+    #[token("(")]
+    LParen,
+    #[token(")")]
+    RParen,
     #[regex("[a-zA-Z_][a-zA-Z0-9_]*")]
     Identifier(&'a str),
 }
@@ -35,6 +39,8 @@ enum Token<'a> {
     Let,
     In,
     By,
+    LParen,
+    RParen,
 }
 
 impl<'a> Token<'a> {
@@ -42,28 +48,43 @@ impl<'a> Token<'a> {
         TokenIterator {
             inner: RawToken::lex(input).peekable(),
             layouts: Default::default(),
-            layout_just_started: false,
+            fresh_layout: None,
             column: 0,
             queue: Default::default(),
         }
     }
 }
 
-struct TokenIterator<'a> {
-    inner: Peekable<RawTokenIterator<'a>>,
-    layouts: Vec<usize>,
-    layout_just_started: bool,
-    column: usize,
-    queue: VecDeque<Token<'a>>,
+enum Layout {
+    Let(usize),
+    Other(usize),
+    Paren,
 }
 
-impl TokenIterator<'_> {
-    fn maybe_push_layout(&mut self) {
-        if self.layout_just_started {
-            self.layout_just_started = false;
-            self.layouts.push(self.column);
+impl Layout {
+    fn column(&self) -> Option<usize> {
+        match self {
+            Self::Let(c) => Some(*c),
+            Self::Other(c) => Some(*c),
+            Self::Paren => None,
         }
     }
+
+    fn with_column(self, c: usize) -> Self {
+        match self {
+            Self::Let(_) => Self::Let(c),
+            Self::Other(_) => Self::Other(c),
+            Self::Paren => Self::Paren,
+        }
+    }
+}
+
+struct TokenIterator<'a> {
+    inner: Peekable<RawTokenIterator<'a>>,
+    layouts: Vec<Layout>,
+    fresh_layout: Option<Layout>,
+    column: usize,
+    queue: VecDeque<Token<'a>>,
 }
 
 impl<'a> Iterator for TokenIterator<'a> {
@@ -77,88 +98,105 @@ impl<'a> Iterator for TokenIterator<'a> {
         loop {
             match self.inner.next() {
                 Some(Err(e)) => return Some(Err(e)),
-                Some(Ok((_, t, _))) => match t {
-                    RawToken::Whitespace(w) => {
-                        self.column += w.len();
-                        continue;
+                Some(Ok((l, t, r))) => {
+                    if !matches!(t, RawToken::Whitespace(_) | RawToken::Indent(_)) {
+                        if let Some(l) = self.fresh_layout.take() {
+                            self.layouts.push(l.with_column(self.column));
+                        }
                     }
-                    RawToken::Indent(indent) => {
-                        let col = indent.len() - 1;
-                        self.column = col;
-
-                        // Ignore this indentation if it's effectively empty or if the next token is `in`.
-                        // For `in` we will pop and insert VRBrace regardless of the indentation.
-                        if let Some(Ok((_, RawToken::Indent(_) | RawToken::In, _))) =
-                            self.inner.peek()
-                        {
+                    self.column += r - l;
+                    match t {
+                        RawToken::Let => {
+                            self.queue.push_back(Token::VLBrace);
+                            self.fresh_layout = Some(Layout::Let(0));
+                        }
+                        RawToken::By => {
+                            self.queue.push_back(Token::VLBrace);
+                            self.fresh_layout = Some(Layout::Other(0));
+                        }
+                        _ => {}
+                    }
+                    match t {
+                        RawToken::Whitespace(_) => {
                             continue;
                         }
+                        RawToken::Indent(indent) => {
+                            let col = indent.len() - 1;
+                            self.column = col;
 
-                        // Ignore this indentation if the reference column of the new layout block hasn't been determined yet.
-                        if self.layout_just_started {
-                            continue;
-                        }
-
-                        if let Some(last) = self.layouts.last() {
-                            if col == *last {
-                                return Some(Ok(Token::VSemicolon));
+                            // Ignore this indentation if the line is effectively empty or if the next token is `in`.
+                            // For `in` we will handle the popping in the next iteration.
+                            if let Some(Ok((_, RawToken::Indent(_) | RawToken::In, _))) =
+                                self.inner.peek()
+                            {
+                                continue;
                             }
-                        }
 
-                        if Some(&col) < self.layouts.last() {
-                            self.layouts.pop();
+                            // Ignore this indentation if the reference column of the new layout block hasn't been determined yet.
+                            if self.fresh_layout.is_some() {
+                                continue;
+                            }
 
-                            while Some(&col) < self.layouts.last() {
+                            if let Some(last) = self.layouts.last() {
+                                if Some(col) == last.column() {
+                                    return Some(Ok(Token::VSemicolon));
+                                }
+                            }
+
+                            if Some(col) < self.layouts.last().and_then(|l| l.column()) {
                                 self.layouts.pop();
-                                self.queue.push_back(Token::VRBrace);
+
+                                while Some(col) < self.layouts.last().and_then(|l| l.column()) {
+                                    self.layouts.pop();
+                                    self.queue.push_back(Token::VRBrace);
+                                }
+
+                                return Some(Ok(Token::VRBrace));
+                            } else {
+                                continue;
                             }
-
-                            return Some(Ok(Token::VRBrace));
-                        } else {
-                            continue;
                         }
-                    }
-                    RawToken::ColonEqual => {
-                        self.maybe_push_layout();
-                        self.column += 2;
-
-                        return Some(Ok(Token::ColonEqual));
-                    }
-                    RawToken::Let => {
-                        self.maybe_push_layout();
-                        self.column += 3;
-
-                        self.queue.push_back(Token::VLBrace);
-                        self.layout_just_started = true;
-                        return Some(Ok(Token::Let));
-                    }
-                    RawToken::By => {
-                        self.maybe_push_layout();
-                        self.column += 2;
-
-                        self.queue.push_back(Token::VLBrace);
-                        self.layout_just_started = true;
-                        return Some(Ok(Token::By));
-                    }
-                    RawToken::In => {
-                        self.maybe_push_layout();
-                        self.column += 2;
-
-                        // Pop a layout and insert an VRBrace if there are any layouts.
-                        if !self.layouts.is_empty() {
-                            self.layouts.pop();
+                        RawToken::ColonEqual => return Some(Ok(Token::ColonEqual)),
+                        RawToken::Let => return Some(Ok(Token::Let)),
+                        RawToken::By => return Some(Ok(Token::By)),
+                        RawToken::LParen => {
+                            self.layouts.push(Layout::Paren);
+                            return Some(Ok(Token::LParen));
+                        }
+                        RawToken::RParen => {
+                            // Pop layouts until we find the matching paren.
+                            loop {
+                                match self.layouts.pop() {
+                                    Some(Layout::Paren) | None => {
+                                        break;
+                                    }
+                                    Some(_) => {
+                                        self.queue.push_back(Token::VRBrace);
+                                    }
+                                }
+                            }
+                            self.queue.push_back(Token::RParen);
+                            return Some(Ok(self.queue.pop_front().unwrap()));
+                        }
+                        RawToken::In => {
+                            // Pop layouts until we find the closest `let`.
+                            loop {
+                                match self.layouts.pop() {
+                                    Some(Layout::Let(_)) | None => {
+                                        self.queue.push_back(Token::VRBrace);
+                                        break;
+                                    }
+                                    Some(_) => {
+                                        self.queue.push_back(Token::VRBrace);
+                                    }
+                                }
+                            }
                             self.queue.push_back(Token::In);
-                            return Some(Ok(Token::VRBrace));
+                            return Some(Ok(self.queue.pop_front().unwrap()));
                         }
-                        return Some(Ok(Token::In));
+                        RawToken::Identifier(i) => return Some(Ok(Token::Identifier(i))),
                     }
-                    RawToken::Identifier(i) => {
-                        self.maybe_push_layout();
-                        self.column += i.len();
-
-                        return Some(Ok(Token::Identifier(i)));
-                    }
-                },
+                }
                 None => {
                     if !self.layouts.is_empty() {
                         for _ in self.layouts.drain(..).skip(1) {
@@ -350,6 +388,149 @@ bar by foo by
             VRBrace,
             Identifier("bar"),
             VRBrace,
+        ],
+    );
+}
+
+#[test]
+fn test_let_by_layout() {
+    use Token::*;
+
+    let it = Token::lex(
+        r#"let x := g by
+  y
+  z
+in f x"#,
+    );
+
+    assert_tokens(
+        it,
+        [
+            Let,
+            VLBrace,
+            Identifier("x"),
+            ColonEqual,
+            Identifier("g"),
+            By,
+            VLBrace,
+            Identifier("y"),
+            VSemicolon,
+            Identifier("z"),
+            VRBrace,
+            VRBrace,
+            In,
+            Identifier("f"),
+            Identifier("x"),
+        ],
+    );
+}
+
+#[test]
+fn test_let_by_single_line() {
+    use Token::*;
+
+    // In should close both by and let.
+    let it = Token::lex("let x := p by a b in x");
+
+    assert_tokens(
+        it,
+        [
+            Let,
+            VLBrace,
+            Identifier("x"),
+            ColonEqual,
+            Identifier("p"),
+            By,
+            VLBrace,
+            Identifier("a"),
+            Identifier("b"),
+            VRBrace,
+            VRBrace,
+            In,
+            Identifier("x"),
+        ],
+    );
+}
+
+#[test]
+fn test_parens() {
+    use Token::*;
+
+    let it = Token::lex(
+        r#"
+let x := f (g
+           y) (let z := w
+               in z)
+    y := (a b
+-- Layout rule is disabled in parens.
+c)
+in x"#,
+    );
+
+    assert_tokens(
+        it,
+        [
+            Let,
+            VLBrace,
+            Identifier("x"),
+            ColonEqual,
+            Identifier("f"),
+            LParen,
+            Identifier("g"),
+            Identifier("y"),
+            RParen,
+            LParen,
+            Let,
+            VLBrace,
+            Identifier("z"),
+            ColonEqual,
+            Identifier("w"),
+            VRBrace,
+            In,
+            Identifier("z"),
+            RParen,
+            VSemicolon,
+            Identifier("y"),
+            ColonEqual,
+            LParen,
+            Identifier("a"),
+            Identifier("b"),
+            Identifier("c"),
+            RParen,
+            VRBrace,
+            In,
+            Identifier("x"),
+        ],
+    );
+}
+
+#[test]
+fn test_by_in_parens() {
+    use Token::*;
+
+    let it = Token::lex(
+        r#"
+-- The second right paren should close the by block.
+f (a by y (foo bar)) b
+"#,
+    );
+
+    assert_tokens(
+        it,
+        [
+            Identifier("f"),
+            LParen,
+            Identifier("a"),
+            By,
+            VLBrace,
+            Identifier("y"),
+            LParen,
+            Identifier("foo"),
+            Identifier("bar"),
+            RParen,
+            VRBrace,
+            RParen,
+            Identifier("b"),
         ],
     );
 }
