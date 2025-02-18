@@ -48,7 +48,7 @@ impl<'a> Token<'a> {
         TokenIterator {
             inner: RawToken::lex(input).peekable(),
             layouts: Default::default(),
-            fresh_layout: None,
+            pending_layout: None,
             column: 0,
             queue: Default::default(),
         }
@@ -77,12 +77,20 @@ impl Layout {
             Self::Paren => Self::Paren,
         }
     }
+
+    fn is_paren(&self) -> bool {
+        matches!(self, Self::Paren)
+    }
+
+    fn is_let(&self) -> bool {
+        matches!(self, Self::Let(_))
+    }
 }
 
 struct TokenIterator<'a> {
     inner: Peekable<RawTokenIterator<'a>>,
     layouts: Vec<Layout>,
-    fresh_layout: Option<Layout>,
+    pending_layout: Option<Layout>,
     column: usize,
     queue: VecDeque<Token<'a>>,
 }
@@ -100,7 +108,7 @@ impl<'a> Iterator for TokenIterator<'a> {
                 Some(Err(e)) => return Some(Err(e)),
                 Some(Ok((l, t, r))) => {
                     if !matches!(t, RawToken::Whitespace(_) | RawToken::Indent(_)) {
-                        if let Some(l) = self.fresh_layout.take() {
+                        if let Some(l) = self.pending_layout.take() {
                             self.layouts.push(l.with_column(self.column));
                         }
                     }
@@ -108,24 +116,22 @@ impl<'a> Iterator for TokenIterator<'a> {
                     match t {
                         RawToken::Let => {
                             self.queue.push_back(Token::VLBrace);
-                            self.fresh_layout = Some(Layout::Let(0));
+                            self.pending_layout = Some(Layout::Let(0));
                         }
                         RawToken::By => {
                             self.queue.push_back(Token::VLBrace);
-                            self.fresh_layout = Some(Layout::Other(0));
+                            self.pending_layout = Some(Layout::Other(0));
                         }
                         _ => {}
                     }
                     match t {
-                        RawToken::Whitespace(_) => {
-                            continue;
-                        }
+                        RawToken::Whitespace(_) => continue,
                         RawToken::Indent(indent) => {
                             let col = indent.len() - 1;
                             self.column = col;
 
                             // Ignore this indentation if the line is effectively empty or if the next token is `in`.
-                            // For `in` we will handle the popping in the next iteration.
+                            // For `in` we will handle the closing in the next iteration.
                             if let Some(Ok((_, RawToken::Indent(_) | RawToken::In, _))) =
                                 self.inner.peek()
                             {
@@ -133,7 +139,7 @@ impl<'a> Iterator for TokenIterator<'a> {
                             }
 
                             // Ignore this indentation if the reference column of the new layout block hasn't been determined yet.
-                            if self.fresh_layout.is_some() {
+                            if self.pending_layout.is_some() {
                                 continue;
                             }
 
@@ -164,32 +170,15 @@ impl<'a> Iterator for TokenIterator<'a> {
                             return Some(Ok(Token::LParen));
                         }
                         RawToken::RParen => {
-                            // Pop layouts until we find the matching paren.
-                            loop {
-                                match self.layouts.pop() {
-                                    Some(Layout::Paren) | None => {
-                                        break;
-                                    }
-                                    Some(_) => {
-                                        self.queue.push_back(Token::VRBrace);
-                                    }
-                                }
-                            }
+                            // Close layouts until we find the matching paren.
+                            self.close_layouts_until(Layout::is_paren);
                             self.queue.push_back(Token::RParen);
                             return Some(Ok(self.queue.pop_front().unwrap()));
                         }
                         RawToken::In => {
-                            // Pop layouts until we find the closest `let`.
-                            loop {
-                                match self.layouts.pop() {
-                                    Some(Layout::Let(_)) | None => {
-                                        self.queue.push_back(Token::VRBrace);
-                                        break;
-                                    }
-                                    Some(_) => {
-                                        self.queue.push_back(Token::VRBrace);
-                                    }
-                                }
+                            // Close layouts until we find the closest `let`.
+                            if self.close_layouts_until(Layout::is_let) {
+                                self.queue.push_back(Token::VRBrace);
                             }
                             self.queue.push_back(Token::In);
                             return Some(Ok(self.queue.pop_front().unwrap()));
@@ -206,6 +195,20 @@ impl<'a> Iterator for TokenIterator<'a> {
                     }
                     return None;
                 }
+            }
+        }
+    }
+}
+
+impl TokenIterator<'_> {
+    fn close_layouts_until(&mut self, p: impl Fn(&Layout) -> bool) -> bool {
+        loop {
+            match self.layouts.pop() {
+                Some(l) if p(&l) => return true,
+                // Unmatched paren. Do nothing.
+                Some(l) if l.is_paren() => {}
+                Some(_) => self.queue.push_back(Token::VRBrace),
+                None => return false,
             }
         }
     }
